@@ -1,0 +1,22 @@
+
+{
+    "name": "Zitga.FindSameTexture2D.Editor",
+    "rootNamespace": "Zitga.FindSameTexture2D.Editor",
+    "references": [
+        "Zitga.FindSameTexture2D",
+        "Sirenix.OdinInspector.Editor",
+        "Sirenix.Utilities",
+        "Sirenix.Utilities.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
