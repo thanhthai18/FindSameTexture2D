@@ -1,0 +1,14 @@
+{
+    "name": "Zitga.FindSameTexture2D",
+    "rootNamespace": "Zitga.FindSameTexture2D",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
