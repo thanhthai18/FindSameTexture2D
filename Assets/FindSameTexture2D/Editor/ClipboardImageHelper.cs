@@ -98,6 +98,7 @@ namespace Zitga.FindSameTexture2D.Editor
             int  bytesPerPx = bitCount / 8;
             // Row stride phải chia hết cho 4 bytes
             int  stride     = ((width * bitCount + 31) / 32) * 4;
+            Debug.Log($"[ClipboardImageHelper] Parsing DIB: {width}x{height} ({(height < 0 ? "Top-Down" : "Bottom-Up")}), {bitCount}bpp");
 
             // Offset tới pixel data:
             // headerSize + color masks (12 bytes nếu BI_BITFIELDS, 0 nếu BI_RGB)
@@ -112,8 +113,10 @@ namespace Zitga.FindSameTexture2D.Editor
 
             for (int y = 0; y < absH; y++)
             {
-                // DIB lưu row từ dưới lên (bottom-up) trừ khi topDown
-                int srcRow = topDown ? y : (absH - 1 - y);
+                // DIB lưu row từ dưới lên (bottom-up) nếu height > 0. 
+                // Unity Texture2D cũng là bottom-up (y=0 là đáy).
+                // Do đó nếu bottom-up thì srcRow = y. Nếu top-down thì srcRow = absH - 1 - y.
+                int srcRow = topDown ? (absH - 1 - y) : y;
 
                 for (int x = 0; x < width; x++)
                 {
