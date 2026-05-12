@@ -1,6 +1,6 @@
 {
   "name": "com.zitga.find-same-texture2d",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "displayName": "Zitga Find Similar Texture2D",
   "description": "Một công cụ mạnh mẽ để tìm kiếm các Texture2D tương tự trong dự án Unity bằng thuật toán pHash, HSV Histogram và SSIM. Hỗ trợ tìm từ ảnh trong project hoặc ảnh bên ngoài (screenshot/clipboard).",
   "unity": "2021.3",

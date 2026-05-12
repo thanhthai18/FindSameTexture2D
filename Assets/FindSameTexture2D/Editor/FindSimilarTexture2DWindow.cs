@@ -184,14 +184,109 @@ namespace Zitga.FindSameTexture2D.Editor
         // ── Results ──────────────────────────────────────────────────────────────
 
         [PropertyOrder(17)]
-        [ShowInInspector, ShowIf(nameof(HasResults))]
-        [BoxGroup("Results", ShowLabel = false)]
-        [LabelText("@ResultTitle()"), HideLabel]
-        [ListDrawerSettings(ShowFoldout = false, HideAddButton = true, HideRemoveButton = true,
-                               DraggableItems = false, NumberOfItemsPerPage = 15)]
+        [HideInInspector]
         public List<ResultItem> Results = new();
-        
+
         [PropertyOrder(18)]
+        [OnInspectorGUI]
+        [ShowIf(nameof(HasResults))]
+        [BoxGroup("Results", ShowLabel = false)]
+        private void DrawResultsGrid()
+        {
+            GUILayout.Space(5);
+            GUILayout.Label(ResultTitle(), EditorStyles.boldLabel);
+            GUILayout.Space(5);
+
+            float width = position.width - 30; // Trừ đi padding
+            float itemSize = 120;
+            int columns = Mathf.Max(1, Mathf.FloorToInt(width / (itemSize + 5)));
+            
+            int count = Results.Count;
+            int rows = Mathf.CeilToInt((float)count / columns);
+
+            for (int r = 0; r < rows; r++)
+            {
+                EditorGUILayout.BeginHorizontal();
+                for (int c = 0; c < columns; c++)
+                {
+                    int index = r * columns + c;
+                    if (index < count)
+                    {
+                        DrawItem(Results[index], itemSize);
+                    }
+                    else
+                    {
+                        GUILayout.Space(itemSize + 5);
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                GUILayout.Space(5);
+            }
+        }
+
+        private void DrawItem(ResultItem item, float size)
+        {
+            var rect = GUILayoutUtility.GetRect(size, size);
+            var contentRect = new Rect(rect.x + 2, rect.y + 2, size - 4, size - 4);
+
+            // Click check
+            bool isClicked = Event.current.type == EventType.MouseDown && rect.Contains(Event.current.mousePosition);
+            bool isRightClicked = Event.current.type == EventType.ContextClick && rect.Contains(Event.current.mousePosition);
+
+            // Highlight if selected
+            bool isSelected = Selection.activeObject != null && AssetDatabase.GetAssetPath(Selection.activeObject) == item.AssetPath;
+            
+            // Draw Background
+            GUI.Box(rect, GUIContent.none, isSelected ? "SelectionRect" : EditorStyles.helpBox);
+
+            // Draw Texture
+            if (item.Texture != null)
+            {
+                var texRect = new Rect(contentRect.x + 5, contentRect.y + 5, contentRect.width - 10, contentRect.height - 25);
+                GUI.DrawTexture(texRect, item.Texture, ScaleMode.ScaleToFit);
+            }
+
+            // Draw Name
+            var nameRect = new Rect(contentRect.x + 5, contentRect.y + contentRect.height - 18, contentRect.width - 10, 16);
+            var style = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, wordWrap = false };
+            GUI.Label(nameRect, Path.GetFileName(item.AssetPath), style);
+
+
+
+            // Tooltip & Hover effect
+            GUI.Label(rect, new GUIContent("", $"{Path.GetFileName(item.AssetPath)}\n{item.AssetPath}\n\n" +
+                                               $"pHash: {item.Score.PHashScore:F2}\n" +
+                                               $"HSV: {item.Score.HSVScore:F2}\n" +
+                                               $"SSIM: {item.Score.SSIMScore:F2}"));
+
+            if (isClicked)
+            {
+                PingAsset(item.AssetPath);
+                Event.current.Use();
+            }
+
+            if (isRightClicked)
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("Ping Asset"), false, () => PingAsset(item.AssetPath));
+                menu.AddItem(new GUIContent("Copy Path"), false, () => { GUIUtility.systemCopyBuffer = item.AssetPath; });
+                menu.AddItem(new GUIContent("Show in Explorer"), false, () => EditorUtility.RevealInFinder(item.AssetPath));
+                menu.ShowAsContext();
+                Event.current.Use();
+            }
+        }
+
+        private void PingAsset(string path)
+        {
+            var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+            if (obj)
+            {
+                EditorGUIUtility.PingObject(obj);
+                Selection.activeObject = obj;
+            }
+        }
+
+        [PropertyOrder(19)]
         [Button("🧹 Xóa kết quả"), GUIColor(0.8f, 0.35f, 0.3f), ShowIf(nameof(HasResults))]
         [BoxGroup("Results", ShowLabel = false)]
         private void ClearResults() => Results.Clear();
@@ -390,44 +485,8 @@ namespace Zitga.FindSameTexture2D.Editor
     [Serializable, HideReferenceObjectPicker]
     public class ResultItem
     {
-        [HideInInspector] public string            AssetPath;
-        [HideInInspector] public TextureMatchScore Score;
-
-        [HorizontalGroup("Row", 110), HideLabel]
-        [PreviewField(100, ObjectFieldAlignment.Left), ReadOnly]
-        public Texture2D Texture;
-
-        [VerticalGroup("Row/Info"), LabelWidth(160)]
-        [DisplayAsString, LabelText("📄 Tên file")]
-        public string FileName => Path.GetFileName(AssetPath);
-
-        [VerticalGroup("Row/Info"), LabelWidth(160)]
-        [ProgressBar(0, 1, 0.2f, 0.85f, 0.35f), LabelText("⭐ Tổng similarity")]
-        public float Combined => Score.Combined;
-
-        [VerticalGroup("Row/Info"), LabelWidth(160)]
-        [ProgressBar(0, 1, 0.3f, 0.6f, 1.0f), LabelText("🔷 pHash")]
-        public float PHash => Score.PHashScore;
-
-        [VerticalGroup("Row/Info"), LabelWidth(160)]
-        [ProgressBar(0, 1, 1.0f, 0.6f, 0.2f), LabelText("🎨 HSV")]
-        public float HSV => Score.HSVScore;
-
-        [VerticalGroup("Row/Info"), LabelWidth(160)]
-        [ProgressBar(0, 1, 0.2f, 0.75f, 0.8f), LabelText("📐 SSIM")]
-        public float SSIM => Score.SSIMScore;
-
-        [VerticalGroup("Row/Info")]
-        [HorizontalGroup("Row/Info/Btns")]
-        [Button("📌 Ping", ButtonSizes.Small), GUIColor(0.4f, 0.8f, 1f)]
-        private void Ping()
-        {
-            var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(AssetPath);
-            if (obj) { EditorGUIUtility.PingObject(obj); Selection.activeObject = obj; }
-        }
-
-        [HorizontalGroup("Row/Info/Btns")]
-        [Button("📋 Copy Path", ButtonSizes.Small)]
-        private void CopyPath() { GUIUtility.systemCopyBuffer = AssetPath; }
+        public string            AssetPath;
+        public TextureMatchScore Score;
+        public Texture2D         Texture;
     }
 }
