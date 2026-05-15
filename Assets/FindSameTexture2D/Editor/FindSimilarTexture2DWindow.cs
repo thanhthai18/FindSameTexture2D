@@ -106,38 +106,44 @@ namespace Zitga.FindSameTexture2D.Editor
         [FoldoutGroup("⚙️ Trọng số & Cài đặt")]
         [InfoBox("Mặc định tối ưu cho UI Sprite/Icon. Tổng 3 weight nên = 1.0")]
         [Range(0f, 1f), LabelText("pHash weight (cấu trúc)")]
+        [OnValueChanged(nameof(RecomputeResults))]
         public float WPHash = 0.35f;
 
         [PropertyOrder(9)]
         [FoldoutGroup("⚙️ Trọng số & Cài đặt")]
         [Range(0f, 1f), LabelText("HSV weight (màu sắc)")]
+        [OnValueChanged(nameof(RecomputeResults))]
         public float WHsv = 0.40f;
         
         [PropertyOrder(10)]
         [FoldoutGroup("⚙️ Trọng số & Cài đặt")]
         [Range(0f, 1f), LabelText("SSIM weight (cấu trúc pixel)")]
+        [OnValueChanged(nameof(RecomputeResults))]
         public float WSsim = 0.25f;
 
         [PropertyOrder(11)]
         [FoldoutGroup("⚙️ Trọng số & Cài đặt")]
         [Range(0f, 1f), LabelText("Ngưỡng tối thiểu")]
+        [OnValueChanged(nameof(RecomputeResults))]
         public float MinScore = 0.55f;
 
         [PropertyOrder(12)]
         [FoldoutGroup("⚙️ Trọng số & Cài đặt")]
         [Range(1, 200), LabelText("Số kết quả tối đa")]
+        [OnValueChanged(nameof(RecomputeResults))]
         public int MaxResults = 50;
 
         [PropertyOrder(13)]
         [FoldoutGroup("⚙️ Trọng số & Cài đặt")]
         [Button("🔄 Reset mặc định")]
-        private void ResetWeights() { WPHash = 0.35f; WHsv = 0.40f; WSsim = 0.25f; }
+        private void ResetWeights() { WPHash = 0.35f; WHsv = 0.40f; WSsim = 0.25f; RecomputeResults(); }
 
         // ── Sort ─────────────────────────────────────────────────────────────────
 
         [PropertyOrder(14)]
         [BoxGroup("Sort", ShowLabel = false)]
         [EnumToggleButtons, LabelText("Sắp xếp theo")]
+        [OnValueChanged(nameof(RecomputeResults))]
         public SortMode SortBy = SortMode.Similarity;
         
         // ── Search Folder ────────────────────────────────────────────────────────
@@ -156,15 +162,42 @@ namespace Zitga.FindSameTexture2D.Editor
         [NonSerialized] private float            _progress;
         [NonSerialized] private string           _progressLabel = "";
         [NonSerialized] private IEnumerator      _enumerator;
+        [NonSerialized] private List<(string Path, TextureSignature Sig, Texture2D Tex)> _allScannedItems = new();
 
-    
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            WPHash = EditorPrefs.GetFloat("Zitga_FST_WPHash", 0.35f);
+            WHsv = EditorPrefs.GetFloat("Zitga_FST_WHsv", 0.40f);
+            WSsim = EditorPrefs.GetFloat("Zitga_FST_WSsim", 0.25f);
+            MinScore = EditorPrefs.GetFloat("Zitga_FST_MinScore", 0.55f);
+            MaxResults = EditorPrefs.GetInt("Zitga_FST_MaxResults", 50);
+            SearchFolder = EditorPrefs.GetString("Zitga_FST_SearchFolder", "Assets");
+            Mode = (InputMode)EditorPrefs.GetInt("Zitga_FST_Mode", 0);
+            TextureSignatureCache.LoadCache();
+        }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+            EditorPrefs.SetFloat("Zitga_FST_WPHash", WPHash);
+            EditorPrefs.SetFloat("Zitga_FST_WHsv", WHsv);
+            EditorPrefs.SetFloat("Zitga_FST_WSsim", WSsim);
+            EditorPrefs.SetFloat("Zitga_FST_MinScore", MinScore);
+            EditorPrefs.SetInt("Zitga_FST_MaxResults", MaxResults);
+            EditorPrefs.SetString("Zitga_FST_SearchFolder", SearchFolder);
+            EditorPrefs.SetInt("Zitga_FST_Mode", (int)Mode);
+            TextureSignatureCache.SaveCache();
+        }
 
         // ── Buttons ──────────────────────────────────────────────────────────────
 
         [PropertyOrder(16)]
-        [Button("🔍  SEARCH", ButtonSizes.Large), GUIColor(0.25f, 0.78f, 0.38f)]
-        [EnableIf(nameof(CanSearch))]
         [BoxGroup("Input", ShowLabel = false)]
+        [HorizontalGroup("Input/SearchGrp")]
+        [Button("🔍  SEARCH", ButtonSizes.Large), GUIColor(0.25f, 0.78f, 0.38f)]
+        [HideIf(nameof(_isSearching))]
+        [EnableIf(nameof(CanSearch))]
         private void StartSearch()
         {
             var active = GetActiveTexture();
@@ -179,6 +212,16 @@ namespace Zitga.FindSameTexture2D.Editor
             _isSearching = true;
             _enumerator  = RunSearch(active);
             EditorApplication.update += Tick;
+        }
+
+        [PropertyOrder(16.5f)]
+        [BoxGroup("Input", ShowLabel = false)]
+        [HorizontalGroup("Input/SearchGrp")]
+        [Button("🛑 CANCEL", ButtonSizes.Large), GUIColor(0.8f, 0.3f, 0.3f)]
+        [ShowIf(nameof(_isSearching))]
+        private void CancelSearch()
+        {
+            _isSearching = false;
         }
 
         // ── Results ──────────────────────────────────────────────────────────────
@@ -242,16 +285,22 @@ namespace Zitga.FindSameTexture2D.Editor
             // Draw Texture
             if (item.Texture != null)
             {
-                var texRect = new Rect(contentRect.x + 5, contentRect.y + 5, contentRect.width - 10, contentRect.height - 25);
+                var texRect = new Rect(contentRect.x + 5, contentRect.y + 5, contentRect.width - 10, contentRect.height - 30);
                 GUI.DrawTexture(texRect, item.Texture, ScaleMode.ScaleToFit);
             }
 
+            // Draw Score Bar
+            float scorePerc = Mathf.Clamp01(item.Score.Combined);
+            var scoreRect = new Rect(contentRect.x + 10, contentRect.y + contentRect.height - 22, contentRect.width - 20, 4);
+            EditorGUI.DrawRect(scoreRect, new Color(0.2f, 0.2f, 0.2f, 0.5f)); // bg
+            var fillRect = new Rect(scoreRect.x, scoreRect.y, scoreRect.width * scorePerc, scoreRect.height);
+            Color barColor = Color.Lerp(Color.red, Color.green, scorePerc);
+            EditorGUI.DrawRect(fillRect, barColor);
+
             // Draw Name
-            var nameRect = new Rect(contentRect.x + 5, contentRect.y + contentRect.height - 18, contentRect.width - 10, 16);
+            var nameRect = new Rect(contentRect.x + 5, contentRect.y + contentRect.height - 16, contentRect.width - 10, 16);
             var style = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter, wordWrap = false };
             GUI.Label(nameRect, Path.GetFileName(item.AssetPath), style);
-
-
 
             // Tooltip & Hover effect
             GUI.Label(rect, new GUIContent("", $"{Path.GetFileName(item.AssetPath)}\n{item.AssetPath}\n\n" +
@@ -261,7 +310,15 @@ namespace Zitga.FindSameTexture2D.Editor
 
             if (isClicked)
             {
-                PingAsset(item.AssetPath);
+                if (Event.current.clickCount == 2)
+                {
+                    // Mở bằng phần mềm xem ảnh mặc định
+                    EditorUtility.OpenWithDefaultApp(Path.GetFullPath(item.AssetPath));
+                }
+                else
+                {
+                    PingAsset(item.AssetPath);
+                }
                 Event.current.Use();
             }
 
@@ -340,6 +397,26 @@ namespace Zitga.FindSameTexture2D.Editor
             }
         }
 
+        private void RecomputeResults()
+        {
+            if (_allScannedItems == null || _allScannedItems.Count == 0 || _inputSig == null) return;
+
+            var found = new List<ResultItem>();
+            foreach (var item in _allScannedItems)
+            {
+                var sc = TextureSimilarity.Compare(_inputSig, item.Sig, WPHash, WHsv, WSsim);
+                if (sc.Combined < MinScore) continue;
+                found.Add(new ResultItem { Texture = item.Tex, AssetPath = item.Path, Score = sc });
+            }
+
+            Results = (SortBy == SortMode.Similarity
+                ? found.OrderByDescending(r => r.Score.Combined)
+                : found.OrderBy(r => Path.GetFileName(r.AssetPath)))
+                .Take(MaxResults).ToList();
+            
+            Repaint();
+        }
+
         private IEnumerator RunSearch(Texture2D inputTex)
         {
             UpdateProg("Đang xử lý ảnh input...", 0f);
@@ -355,35 +432,34 @@ namespace Zitga.FindSameTexture2D.Editor
             string[] guids = AssetDatabase.FindAssets("t:Texture2D", new[] { folder });
             string inputPath = IsProjectMode ? AssetDatabase.GetAssetPath(InputTexture) : "";
             int total = guids.Length;
-            var found = new List<ResultItem>();
+            _allScannedItems.Clear();
 
             for (int i = 0; i < total; i++)
             {
+                if (!_isSearching) yield break;
+
                 string path = AssetDatabase.GUIDToAssetPath(guids[i]);
                 if (path == inputPath) continue;
 
                 UpdateProg($"[{i + 1}/{total}] {Path.GetFileName(path)}", 0.02f + 0.95f * i / total);
-                if (i % 4 == 0) yield return null;
+                // Với số lượng file lớn và dùng cache, việc yield mỗi 4 frame quá chậm, tăng lên 25
+                if (i % 25 == 0) yield return null;
 
                 var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
                 if (tex == null) continue;
 
                 TextureSignature sig;
-                try { sig = TextureSimilarity.ComputeSignature(tex); } catch { continue; }
+                try { sig = TextureSignatureCache.GetSignature(tex, path, guids[i]); } catch { continue; }
 
-                var sc = TextureSimilarity.Compare(_inputSig, sig, WPHash, WHsv, WSsim);
-                if (sc.Combined < MinScore) continue;
-
-                found.Add(new ResultItem { Texture = tex, AssetPath = path, Score = sc });
+                _allScannedItems.Add((path, sig, tex));
             }
+
+            TextureSignatureCache.SaveCache();
 
             UpdateProg("Đang tổng hợp...", 0.99f);
             yield return null;
 
-            Results = (SortBy == SortMode.Similarity
-                ? found.OrderByDescending(r => r.Score.Combined)
-                : found.OrderBy(r => Path.GetFileName(r.AssetPath)))
-                .Take(MaxResults).ToList();
+            RecomputeResults();
         }
 
         // ── Drag & Drop từ Explorer (external file) ──────────────────────────────
@@ -488,5 +564,126 @@ namespace Zitga.FindSameTexture2D.Editor
         public string            AssetPath;
         public TextureMatchScore Score;
         public Texture2D         Texture;
+    }
+
+    // ── Cache ──────────────────────────────────────────────────────────────────
+
+    [Serializable]
+    public class TextureSignatureCacheData
+    {
+        public string Guid;
+        public string Hash;
+        public string PHash;
+        public float[] HSVHistogram;
+        public float[] GrayPixels;
+    }
+
+    [Serializable]
+    public class TextureSignatureCacheFile
+    {
+        public List<TextureSignatureCacheData> Entries = new List<TextureSignatureCacheData>();
+    }
+
+    public static class TextureSignatureCache
+    {
+        private static readonly string CachePath = "Library/FindSameTexture2DCache.json";
+        private static Dictionary<string, TextureSignatureCacheData> _cacheMap = new Dictionary<string, TextureSignatureCacheData>();
+        private static bool _isLoaded = false;
+        private static bool _isDirty = false;
+
+        public static void LoadCache()
+        {
+            if (_isLoaded) return;
+            _cacheMap.Clear();
+            if (File.Exists(CachePath))
+            {
+                try
+                {
+                    string json = File.ReadAllText(CachePath);
+                    var fileData = JsonUtility.FromJson<TextureSignatureCacheFile>(json);
+                    if (fileData != null && fileData.Entries != null)
+                    {
+                        foreach (var entry in fileData.Entries)
+                        {
+                            _cacheMap[entry.Guid] = entry;
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[FindSameTexture2D] Lỗi đọc cache: {e.Message}");
+                }
+            }
+            _isLoaded = true;
+        }
+
+        public static void SaveCache()
+        {
+            if (!_isDirty) return;
+            try
+            {
+                var fileData = new TextureSignatureCacheFile();
+                foreach (var kvp in _cacheMap)
+                {
+                    fileData.Entries.Add(kvp.Value);
+                }
+                string json = JsonUtility.ToJson(fileData);
+                File.WriteAllText(CachePath, json);
+                _isDirty = false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[FindSameTexture2D] Lỗi lưu cache: {e.Message}");
+            }
+        }
+
+        public static TextureSignature GetSignature(Texture2D tex, string path, string guid)
+        {
+            LoadCache();
+            string fileHash = AssetDatabase.GetAssetDependencyHash(path).ToString();
+
+            if (_cacheMap.TryGetValue(guid, out var cachedData))
+            {
+                if (cachedData.Hash == fileHash)
+                {
+                    return new TextureSignature
+                    {
+                        PHash = StringToBoolArray(cachedData.PHash),
+                        HSVHistogram = cachedData.HSVHistogram,
+                        GrayPixels = cachedData.GrayPixels
+                    };
+                }
+            }
+
+            var newSig = TextureSimilarity.ComputeSignature(tex);
+
+            _cacheMap[guid] = new TextureSignatureCacheData
+            {
+                Guid = guid,
+                Hash = fileHash,
+                PHash = BoolArrayToString(newSig.PHash),
+                HSVHistogram = newSig.HSVHistogram,
+                GrayPixels = newSig.GrayPixels
+            };
+            _isDirty = true;
+
+            return newSig;
+        }
+
+        private static string BoolArrayToString(bool[] arr)
+        {
+            if (arr == null) return "";
+            char[] chars = new char[arr.Length];
+            for (int i = 0; i < arr.Length; i++) chars[i] = arr[i] ? '1' : '0';
+            return new string(chars);
+        }
+
+        private static bool[] StringToBoolArray(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return new bool[0];
+            bool[] arr = new bool[s.Length];
+            for (int i = 0; i < s.Length; i++) arr[i] = s[i] == '1';
+            return arr;
+        }
     }
 }

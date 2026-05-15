@@ -76,6 +76,12 @@ namespace Zitga.FindSameTexture2D
             return new TextureMatchScore(ph, hsv, ssim, wPHash, wHSV, wSSIM);
         }
 
+        // ── Static Buffers (Tránh tạo rác bộ nhớ) ────────────────────────────────
+        private static readonly float[,] _tmpDct = new float[PHASH_N, PHASH_N];
+        private static readonly float[,] _resDct = new float[PHASH_N, PHASH_N];
+        private static readonly float[,] _gray2D = new float[PHASH_N, PHASH_N];
+        private static readonly float[] _gray1D = new float[PHASH_N * PHASH_N];
+
         // ── pHash (DCT-based) ────────────────────────────────────────────────────
 
         private static bool[] BuildPHash(float[,] gray)
@@ -104,8 +110,6 @@ namespace Zitga.FindSameTexture2D
         // Separable 2D DCT — O(N³)
         private static float[,] DCT2D(float[,] inp, int n)
         {
-            var tmp = new float[n, n];
-            var res = new float[n, n];
             float piN = Mathf.PI / n;
 
             for (int y = 0; y < n; y++)
@@ -113,17 +117,17 @@ namespace Zitga.FindSameTexture2D
                 {
                     float s = 0f;
                     for (int x = 0; x < n; x++) s += inp[y, x] * Mathf.Cos(piN * (x + 0.5f) * k);
-                    tmp[y, k] = s;
+                    _tmpDct[y, k] = s;
                 }
 
             for (int kx = 0; kx < n; kx++)
                 for (int ky = 0; ky < n; ky++)
                 {
                     float s = 0f;
-                    for (int y = 0; y < n; y++) s += tmp[y, kx] * Mathf.Cos(piN * (y + 0.5f) * ky);
-                    res[ky, kx] = s;
+                    for (int y = 0; y < n; y++) s += _tmpDct[y, kx] * Mathf.Cos(piN * (y + 0.5f) * ky);
+                    _resDct[ky, kx] = s;
                 }
-            return res;
+            return _resDct;
         }
 
         private static float PHashSim(bool[] a, bool[] b)
@@ -200,7 +204,7 @@ namespace Zitga.FindSameTexture2D
 
         private static float[] ToGray(Color[] px)
         {
-            var g = new float[px.Length];
+            var g = new float[px.Length]; // Vẫn tạo mới để lưu vào TextureSignature
             for (int i = 0; i < px.Length; i++)
                 g[i] = px[i].r * 0.299f + px[i].g * 0.587f + px[i].b * 0.114f;
             return g;
@@ -208,10 +212,9 @@ namespace Zitga.FindSameTexture2D
 
         private static float[,] ToGray2D(Color[] px, int n)
         {
-            var g = new float[n, n];
             for (int i = 0; i < px.Length; i++)
-                g[i / n, i % n] = px[i].r * 0.299f + px[i].g * 0.587f + px[i].b * 0.114f;
-            return g;
+                _gray2D[i / n, i % n] = px[i].r * 0.299f + px[i].g * 0.587f + px[i].b * 0.114f;
+            return _gray2D;
         }
 
         public static Texture2D MakeReadable(Texture2D src)
